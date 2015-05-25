@@ -1,0 +1,206 @@
+
+####################################x
+# Lammps input for graphene on Cu(111)
+# P. Süle, M. Szendrő, MTA-MFA, Budapest, Hungary
+# 3X3 moiré superlattice
+
+# References:
+
+# P Süle , M. Szendrő
+# Time-lapsed graphene moiré superlattice on Cu(111)
+# Modelling Simul. Mater. Sci. Eng. 23 (2015) 025001.
+# doi:10.1088/0965-0393/23/2/025001
+
+# P Süle, ; M Szendrő, C Hwang, L Tapasztó
+# Rotation misorientated graphene moire superlattices on Cu(111): classical
+# molecular dynamics simulations and scanning tunneling microscopy studies
+# CARBON 77: pp. 1082-1089. (2014)
+# doi:10.1016/j.carbon.2014.06.024
+
+####################################
+
+#----------------Initialization----------------------------------------------------
+clear
+units metal
+dimension 3
+boundary p p p
+atom_style atomic
+newton on
+#----------------------------------------------------------------------------------
+
+#---------------variables-----------------------------------------------
+variable D equal 0.9 # shift graphene by D along the z-axis
+
+variable grracs equal 2.46
+variable curacs equal 2.55
+
+variable a    equal ${grracs}/sqrt(3.0)	# graphene lattice constant
+variable cu_a equal 2.0/sqrt(2.0)*${curacs} # Cu lattice constant
+
+#graphene lattice vectors
+variable v1x equal sqrt(3.0)*${a}
+variable v1y equal 0.0
+variable v2x equal sqrt(3.0)/2.0*${a}
+variable v2y equal 3.0/2.0*${a}
+
+# parameters for the rhombic supercell, moiré superlattice 
+variable Nx equal 29. # supercell size (3X3 moiré)
+variable Ny equal 29.000000000000 #
+
+variable xlo equal -0.00000000001
+variable xhi equal ${v1x}*${Nx} 
+variable ylo equal -0.00000000001 
+variable yhi equal ${v2y}*${Ny}
+variable tilt equal ${v2x}*${Nx}
+
+# interlayer distance for Cu
+variable cuthick equal 2.185895
+variable NCu_free  equal 10	# the number of free Cu layers 
+variable NCu_fixed equal 0.5     # the number fixed bottom layers
+
+variable origo equal 0		 # the zero position
+variable width_gr equal ${a} 	# the half of the gr layer thickness
+variable width_cu equal ${NCu_free}*${cuthick}		# the thcikness of the Cu
+variable width_fixed_bottom equal ${NCu_fixed}*${cuthick}	# the fixed bottom layer thickness
+variable width_void equal 40	# the thickness of the vacuum region
+#variable mid_void equal 20
+
+# auxiliary z coordinates
+variable z0 equal ${origo}+${width_gr}/2+${width_void}
+#variable zx equal ${origo} + ${width_gr})/2 + 20
+variable z1 equal ${origo}+${width_gr}/2 
+variable z2 equal ${origo}-${width_gr}/2  
+variable z3 equal ${origo}-${width_gr}/2-${width_cu}
+variable z4 equal ${origo}-${width_gr}/2-${width_cu}-${width_fixed_bottom}
+#---------------------------------------------------------------------------------
+
+print ""
+print "==========================================="
+print "INITIALIZATION"
+print "==========================================="
+print ""
+
+#-------------graphene --------------------------------------- 
+variable egyh equal 1.0/3.0
+variable keth equal 2.0/3.0
+
+lattice custom 1.0 orient x 1 0 0 &
+a1 ${v1x} ${v1y} 0.0 &
+a2 ${v2x} ${v2y} 0.0 &
+a3 0.0 0.0 6.51 &
+basis  0.0000   0.0000   0.0000 &
+basis  0.0000   0.0000   0.5000 &
+basis  ${egyh}  ${egyh}  0.0000 &
+basis  ${keth}  ${keth}  0.5000
+#------------------------------------------------------------------------------------
+
+#------------Regions----------------------------------------
+region graphene		prism ${xlo} ${xhi} ${ylo} ${yhi} ${z2} ${z1} ${tilt} 0.0 0.0 units box
+region rez	 		prism ${xlo} ${xhi} ${ylo} ${yhi} ${z3} ${z2} ${tilt} 0.0 0.0 units box
+region fixed_bottom	prism ${xlo} ${xhi} ${ylo} ${yhi} ${z4} ${z3} ${tilt} 0.0 0.0 units box
+region simulate	 	prism ${xlo} ${xhi} ${ylo} ${yhi} ${z3} ${z0} ${tilt} 0.0 0.0 units box
+region full	 		prism ${xlo} ${xhi} ${ylo} ${yhi} ${z4} ${z0} ${tilt} 0.0 0.0 units box
+region deposit		prism ${xlo} ${xhi} ${ylo} ${yhi} 5.1 ${z0} ${tilt} 0.0 0.0 units box
+#-------------------------------------------------------------------------------------
+
+create_box 3 full				
+#-------------------------------------------------------------------------------------
+
+#---------------------------------Carbons----------------------------
+create_atoms 1 region graphene
+#-------------------------------------------------------------------------------------
+
+#-------------------------------Cu(111)----------------------------------
+lattice fcc ${cu_a} origin 0.0 0.0 0.0 orient x 1 -1 0 orient y 1 1 -2 orient z 1 1 1
+#-------------------------------------------------------------------------------------
+
+create_atoms 2 region rez  	    
+create_atoms 2 region fixed_bottom 
+#------------------------------------------------------------------------------------
+
+#--------------------------groups----------------------------------------------
+group gr region graphene	
+group cu region rez	
+group fixed region fixed_bottom
+group sim region simulate
+#-------------------------------------------------------------------------------------
+
+mass            1 12.011
+mass            2 63.54
+mass			3 107.87
+#-------------------------------------------------------------------------------------
+
+#-------------Position graphene: gr-Cu(111) distance-------------------------------
+displace_atoms gr move 0 0 ${D} units box 
+#-------------------------------------------------------------------------------------
+
+#-----------Potentials-----------------------------------------------------
+#C-Cu Tersoff
+pair_style hybrid/overlay airebo 2.5 1 1 eam/fs tersoff  eam lj/cut 10.0 eam/alloy
+pair_coeff * * airebo CH.airebo C NULL NULL
+pair_coeff * * eam/fs Cu.lammps.eam NULL Cu NULL
+pair_coeff * * tersoff CCu.tersoff C Cu NULL
+pair_coeff 1 3 lj/cut .4 2.3 
+pair_coeff * * eam/alloy cu_ag_ymwu.eam.alloy NULL Cu Ag
+pair_coeff 3 3 eam Ag_u3.eam
+
+#-------------------------------------------------------------------------------------
+
+#-----------neighbor list--------------------------------------------------------
+neighbor        3.0 bin #szomsz. list: binnelő algoritmus, skin distance: 2.0
+neigh_modify    every 1 delay 1 check yes #milyen gyakran gyártjuk le a szomszéds. listát
+#-------------------------------------------------------------------------------------
+
+#-----------Minimization------------------------------------------------------------
+print ""
+print "==========================================="
+print "MINIMIZATION"
+print "==========================================="
+print ""
+
+
+#fix relbox all box/relax aniso 0.0 vmax 0.0001
+
+#unfix relbox
+#fix relbox all box/relax aniso 1000.0 vmax 0.0001
+variable b atom sqrt(fx*fx+fy*fy+fz*fz)
+compute rms2 all reduce ave v_b
+#thermo_style custom step pe lx ly lz press pxx pyy pzz
+#thermo_style custom step pe lx ly lz press c_rmsf2 pxx pyy pzz
+#dump 1 all xyz 100 min.xyz
+thermo 100
+thermo_style custom step dt temp press c_rms2 pe pxx pyy pzz
+thermo_modify lost warn flush yes
+
+dump 1 all custom 100 min.lammpstrj id type xs ys zs 
+
+min_style cg
+min_modify line forcezero
+minimize 1.0e-25 1.0e-25 3000 3000
+#------------------------------------------------------------------------------------
+
+write_restart restart.minimized
+
+variable TEMP equal 400.0
+
+#create_atoms 3 random 200 1234 deposit
+#group gold type 3
+velocity sim create ${TEMP} 1234 mom no rot no dist gaussian
+velocity sim zero angular 
+velocity sim zero linear
+
+
+reset_timestep 0 
+timestep 0.01
+fix 2 all dt/reset 1 0.0001 0.001 0.005 units box
+
+
+fix termost sim npt temp ${TEMP} ${TEMP} 0.01 aniso 0.0 0.0 0.1
+fix AgDep sim deposit 500 3 1000 1234 region deposit near 5. vx -.1 .1 vy -.1 .1 vz -2 -2 units box
+dump 2 all custom 500 Silver_Dep.xyz type id x y z 
+
+
+run 5000000
+write_restart restart.GoldIslands
+
+
