@@ -1,0 +1,107 @@
+ 
+read_restart restart.minimized
+#comm_style tiled
+variable TEMP equal 400.0
+#---------------variables-----------------------------------------------
+variable D equal 0.9 # shift graphene by D along the z-axis
+
+variable grracs equal 2.46
+variable curacs equal 2.55
+
+variable a    equal ${grracs}/sqrt(3.0)	# graphene lattice constant
+variable cu_a equal 2.0/sqrt(2.0)*${curacs} # Cu lattice constant
+
+#graphene lattice vectors
+variable v1x equal sqrt(3.0)*${a}
+variable v1y equal 0.0
+variable v2x equal sqrt(3.0)/2.0*${a}
+variable v2y equal 3.0/2.0*${a}
+
+# parameters for the rhombic supercell, moiré superlattice 
+variable Nx equal 85. # supercell size (3X3 moiré)
+variable Ny equal 85.000000000000 #
+
+variable xlo equal -0.00000000001
+variable xhi equal ${v1x}*${Nx} 
+variable ylo equal -0.00000000001 
+variable yhi equal ${v2y}*${Ny}
+variable tilt equal ${v2x}*${Nx}
+
+# interlayer distance for Cu
+variable cuthick equal 2.185895
+variable NCu_free  equal 30	# the number of free Cu layers 
+variable NCu_fixed equal 0.5     # the number fixed bottom layers
+
+variable origo equal 0		 # the zero position
+variable width_gr equal ${a} 	# the half of the gr layer thickness
+variable width_cu equal ${NCu_free}*${cuthick}		# the thcikness of the Cu
+variable width_fixed_bottom equal ${NCu_fixed}*${cuthick}	# the fixed bottom layer thickness
+variable width_void equal 40	# the thickness of the vacuum region
+#variable mid_void equal 20
+
+# auxiliary z coordinates
+variable z0 equal ${origo}+${width_gr}/2+${width_void}
+#variable zx equal ${origo} + ${width_gr})/2 + 20
+variable z1 equal ${origo}+${width_gr}/2 
+variable z2 equal ${origo}-${width_gr}/2  
+variable z3 equal ${origo}-${width_gr}/2-${width_cu}
+variable z4 equal ${origo}-${width_gr}/2-${width_cu}-${width_fixed_bottom}
+#---------------------------------------------------------------------------------
+#------------Regions----------------------------------------
+region graphene		prism ${xlo} ${xhi} ${ylo} ${yhi} ${z2} ${z1} ${tilt} 0.0 0.0 units box
+region rez	 		prism ${xlo} ${xhi} ${ylo} ${yhi} ${z3} ${z2} ${tilt} 0.0 0.0 units box
+region fixed_bottom	prism ${xlo} ${xhi} ${ylo} ${yhi} ${z4} ${z3} ${tilt} 0.0 0.0 units box
+region simulate	 	prism ${xlo} ${xhi} ${ylo} ${yhi} ${z3} ${z0} ${tilt} 0.0 0.0 units box
+region full	 		prism ${xlo} ${xhi} ${ylo} ${yhi} ${z4} ${z0} ${tilt} 0.0 0.0 units box
+region deposit		prism ${xlo} ${xhi} ${ylo} ${yhi} 3.1 5.1 ${tilt} 0.0 0.0 units box
+#-------------------------------------------------------------------------------------
+#--------------------------groups----------------------------------------------
+group gr region graphene	
+group cu region rez	
+group fixed region fixed_bottom
+group sim region simulate
+#-------------------------------------------------------------------------------------
+
+mass            1 12.011
+mass            2 63.54
+mass		3 107.87
+
+#-------------------------------
+#-----------Potentials-----------------------------------------------------
+#C-Cu Tersoff
+pair_style hybrid/overlay airebo 2.5 1 1 tersoff eam lj/cut 10.0 eam/fs
+pair_coeff * * airebo CH.airebo C NULL NULL
+pair_coeff * * eam/fs Cu.lammps.eam NULL Cu NULL
+pair_coeff * * tersoff CCu.tersoff C Cu NULL
+pair_coeff 1 3 lj/cut .341 3.003 
+pair_coeff * * eam/fs AuCu.setfl.fs NULL Cu Au
+pair_coeff 3 3 eam Au_u3.eam
+
+#-----------neighbor list--------------------------------------------------------
+neighbor        3.0 bin #szomsz. list: binnelő algoritmus, skin distance: 2.0
+neigh_modify    every 1 delay 1 check yes #milyen gyakran gyártjuk le a szomszéds. listát
+#-------------------------------------------------------------------------------------
+
+
+
+velocity sim create ${TEMP} 1234 mom no rot no dist gaussian
+velocity sim zero angular 
+velocity sim zero linear
+group gold type 3 
+#region deposit		prism ${xlo} ${xhi} ${ylo} ${yhi} 5.1 20.1 ${tilt} 0.0 0.0 units box
+
+reset_timestep 0 
+timestep 0.01
+fix 2 all dt/reset 1 0.0001 0.001 0.005 units box
+
+
+fix termost sim npt temp ${TEMP} ${TEMP} 0.01 x 1.0 1.0 0.1 y 1.0 1.0 0.1
+fix AgDep sim deposit 1 3 1000 1234 region deposit near 3. vx -.1 .1 vy -.1 .1 vz -2 -2 units box
+fix reflect all wall/reflect zhi EDGE zlo EDGE
+fix loadbalance all balance 1000 1.05 shift z 10 1.05
+dump 2 all custom 500 BM.xyz type id x y z 
+
+
+
+run 100
+write_restart restart.BM
